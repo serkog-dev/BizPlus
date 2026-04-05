@@ -60,7 +60,7 @@ export class PublicBookingController {
     if (!tenant) return { success: false, error: 'העסק לא נמצא' }
     const dto = AvailabilityQuerySchema.parse(query)
     const days = dto.days || 7
-    const results = []
+    const results: Array<{ date: string; slots: any[] }> = []
     for (let i = 0; i < days; i++) {
       const d = new Date(dto.date)
       d.setDate(d.getDate() + i)

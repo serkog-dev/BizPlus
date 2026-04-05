@@ -55,7 +55,7 @@ export class CancelFlow {
     }))
     await this.convService.set(ctx)
 
-    const list = ctx.shownAppointments.map((a, i) => `${i + 1}. ${a.label}`).join('\n')
+    const list = (ctx.shownAppointments ?? []).map((a, i) => `${i + 1}. ${a.label}`).join('\n')
     return `🗑️ *ביטול תור*\n\nאיזה תור תרצה לבטל?\n\n${list}\n\nשלח את *מספר* התור לביטול\nאו *0* לחזרה`
   }
 

@@ -180,7 +180,7 @@ export class BookingService {
       tenant.id,
       {
         customerId: customer.id,
-        providerId,
+        providerId: providerId!,
         serviceId: dto.serviceId,
         locationId: dto.locationId,
         startTime: dto.startTime,

@@ -48,7 +48,7 @@ export class AppointmentsController {
   ) {
     const dto = AvailabilityQuerySchema.parse(query)
     const days = dto.days || 7
-    const slots = []
+    const slots: Array<{ date: string; slots: any[] }> = []
 
     for (let i = 0; i < days; i++) {
       const date = new Date(dto.date)
