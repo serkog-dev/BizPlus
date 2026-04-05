@@ -1,0 +1,39 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bizplus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bizplus
+      POSTGRES_PASSWORD: bizplus123
+      POSTGRES_DB: bizplus
+    ports:
+      - "5432:5432"
+    volumes:
+      - bizplus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bizplus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bizplus-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - bizplus_redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  bizplus_postgres_data:
+  bizplus_redis_data:
