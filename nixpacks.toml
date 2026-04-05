@@ -7,8 +7,10 @@ cmds = [
 [phases.build]
 cmds = [
   "pnpm --filter api run build",
-  "cd apps/api && npx prisma generate"
+  "cd apps/api && npx prisma generate",
+  "cp -r apps/api/dist dist",
+  "cp -r apps/api/prisma dist/prisma"
 ]
 
 [start]
-cmd = "cd apps/api && npx prisma migrate deploy && node dist/src/main.js"
+cmd = "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma && node dist/src/main.js"
