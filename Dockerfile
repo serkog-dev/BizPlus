@@ -22,8 +22,14 @@ RUN pnpm --filter @bizplus/shared run build
 # Generate Prisma client
 RUN cd apps/api && npx prisma generate
 
-# Build NestJS API
-RUN pnpm --filter api run build
+# Build NestJS API and verify output exists
+RUN pnpm --filter api run build \
+    && echo "=== BUILD OUTPUT ===" \
+    && ls -la /app/apps/api/dist/src/main.js \
+    && echo "=== BUILD OK ==="
+
+# Verify dist survives to final layer
+RUN ls -la /app/apps/api/dist/src/main.js && echo "DIST VERIFIED"
 
 # KEY FIX: Set working directory to apps/api
 # so "node dist/src/main.js" resolves to /app/apps/api/dist/src/main.js
@@ -31,4 +37,4 @@ WORKDIR /app/apps/api
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
+CMD ["sh", "-c", "echo 'Checking files...' && ls -la dist/src/main.js && npx prisma migrate deploy && node dist/src/main.js"]
