@@ -1,0 +1,572 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// SUPER ADMIN TABLES (BizPlus platform management)
+// ============================================================
+
+model AdminUser {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  passwordHash String   @map("password_hash")
+  firstName   String    @map("first_name")
+  lastName    String    @map("last_name")
+  role        AdminRole @default(SUPPORT)
+  isActive    Boolean   @default(true) @map("is_active")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  auditLogs AdminAuditLog[]
+
+  @@map("admin_users")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  SUPPORT
+  VIEWER
+}
+
+model Subscription {
+  id                  String             @id @default(uuid())
+  tenantId            String             @unique @map("tenant_id")
+  plan                PlanType           @default(BASIC)
+  status              SubscriptionStatus @default(TRIAL)
+  trialEndsAt         DateTime?          @map("trial_ends_at")
+  currentPeriodStart  DateTime           @map("current_period_start")
+  currentPeriodEnd    DateTime           @map("current_period_end")
+  monthlyPrice        Decimal            @default(99) @db.Decimal(10, 2) @map("monthly_price")
+  currency            String             @default("ILS")
+  cancelledAt         DateTime?          @map("cancelled_at")
+  cancelReason        String?            @map("cancel_reason")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  invoices Invoice[]
+
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  SUSPENDED
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  subscriptionId String        @map("subscription_id")
+  tenantId       String        @map("tenant_id")
+  amount         Decimal       @db.Decimal(10, 2)
+  currency       String        @default("ILS")
+  status         InvoiceStatus @default(PENDING)
+  invoiceNumber  String        @unique @map("invoice_number")
+  paidAt         DateTime?     @map("paid_at")
+  dueDate        DateTime      @map("due_date")
+  paymentMethod  String?       @map("payment_method")
+  receiptUrl     String?       @map("receipt_url")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model UsageLog {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  month            String   // "YYYY-MM"
+  appointmentsCount Int     @default(0) @map("appointments_count")
+  messagesCount    Int      @default(0) @map("messages_count")
+  activeCustomers  Int      @default(0) @map("active_customers")
+  activeUsers      Int      @default(0) @map("active_users")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, month])
+  @@map("usage_logs")
+}
+
+model AdminAuditLog {
+  id             String   @id @default(uuid())
+  adminUserId    String   @map("admin_user_id")
+  action         String
+  targetTenantId String?  @map("target_tenant_id")
+  details        Json?
+  ipAddress      String?  @map("ip_address")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  admin AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId])
+  @@index([targetTenantId])
+  @@map("admin_audit_logs")
+}
+
+// ============================================================
+// BUSINESS TABLES (Per-tenant data)
+// ============================================================
+
+model Tenant {
+  id                  String   @id @default(uuid())
+  name                String
+  slug                String   @unique
+  email               String
+  phone               String
+  logoUrl             String?  @map("logo_url")
+  brandColors         Json?    @map("brand_colors")
+  timezone            String   @default("Asia/Jerusalem")
+  currency            String   @default("ILS")
+  plan                PlanType @default(BASIC)
+  isActive            Boolean  @default(true) @map("is_active")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  registeredVia       String   @default("WEBSITE") @map("registered_via")
+  settings            Json     @default("{}")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  users          User[]
+  locations      Location[]
+  services       Service[]
+  providers      Provider[]
+  customers      Customer[]
+  appointments   Appointment[]
+  conversations  Conversation[]
+  channelConfigs ChannelConfig[]
+  auditLogs      AuditLog[]
+  subscription   Subscription?
+  invoices       Invoice[]
+  usageLogs      UsageLog[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("tenants")
+}
+
+enum PlanType {
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  address   String
+  phone     String?
+  email     String?
+  isDefault Boolean  @default(false) @map("is_default")
+  isActive  Boolean  @default(true) @map("is_active")
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  appointments      Appointment[]
+  providerLocations ProviderLocation[]
+  serviceLocations  ServiceLocation[]
+  schedules         Schedule[]
+
+  @@index([tenantId])
+  @@map("locations")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  email          String
+  passwordHash   String   @map("password_hash")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  phone          String?
+  avatarUrl      String?  @map("avatar_url")
+  role           UserRole @default(PROVIDER)
+  isActive       Boolean  @default(true) @map("is_active")
+  twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  provider     Provider?
+  refreshTokens RefreshToken[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  PROVIDER
+  RECEPTIONIST
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Provider {
+  id             String         @id @default(uuid())
+  userId         String         @unique @map("user_id")
+  tenantId       String         @map("tenant_id")
+  bio            String?
+  color          String         @default("#42A5F5")
+  sortOrder      Int            @default(0) @map("sort_order")
+  commissionType CommissionType @default(NONE) @map("commission_type")
+  commissionRate Decimal        @default(0) @db.Decimal(5, 2) @map("commission_rate")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  user              User               @relation(fields: [userId], references: [id])
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  appointments      Appointment[]
+  providerLocations ProviderLocation[]
+  providerServices  ProviderService[]
+  schedules         Schedule[]
+  scheduleBreaks    ScheduleBreak[]
+  preferredByCustomers Customer[]
+
+  @@index([tenantId])
+  @@map("providers")
+}
+
+enum CommissionType {
+  NONE
+  PERCENTAGE
+  FIXED
+}
+
+model ProviderLocation {
+  providerId String @map("provider_id")
+  locationId String @map("location_id")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, locationId])
+  @@map("provider_locations")
+}
+
+model Service {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  name            String
+  description     String?
+  duration        Int      // minutes
+  price           Decimal  @db.Decimal(10, 2)
+  currency        String   @default("ILS")
+  bufferBefore    Int      @default(0) @map("buffer_before")
+  bufferAfter     Int      @default(0) @map("buffer_after")
+  maxBookAhead    Int      @default(60) @map("max_book_ahead")  // days
+  minBookAhead    Int      @default(1) @map("min_book_ahead")   // hours
+  isActive        Boolean  @default(true) @map("is_active")
+  isPublic        Boolean  @default(true) @map("is_public")
+  sortOrder       Int      @default(0) @map("sort_order")
+  requireDeposit  Boolean  @default(false) @map("require_deposit")
+  depositPercent  Decimal  @default(0) @db.Decimal(5, 2) @map("deposit_percent")
+  category        String?
+  imageUrl        String?  @map("image_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  appointments     Appointment[]
+  providerServices ProviderService[]
+  serviceLocations ServiceLocation[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("services")
+}
+
+model ProviderService {
+  providerId     String   @map("provider_id")
+  serviceId      String   @map("service_id")
+  customDuration Int?     @map("custom_duration")
+  customPrice    Decimal? @db.Decimal(10, 2) @map("custom_price")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, serviceId])
+  @@map("provider_services")
+}
+
+model ServiceLocation {
+  serviceId   String   @map("service_id")
+  locationId  String   @map("location_id")
+  customPrice Decimal? @db.Decimal(10, 2) @map("custom_price")
+
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, locationId])
+  @@map("service_locations")
+}
+
+model Customer {
+  id                 String          @id @default(uuid())
+  tenantId           String          @map("tenant_id")
+  firstName          String          @map("first_name")
+  lastName           String          @map("last_name")
+  phone              String
+  email              String?
+  whatsappId         String?         @map("whatsapp_id")
+  telegramId         String?         @map("telegram_id")
+  dateOfBirth        DateTime?       @map("date_of_birth")
+  tags               String[]        @default([])
+  source             CustomerSource  @default(MANUAL)
+  preferredChannel   Channel?        @map("preferred_channel")
+  preferredProviderId String?        @map("preferred_provider_id")
+  notes              String?
+  isActive           Boolean         @default(true) @map("is_active")
+  // Denormalized stats
+  totalAppointments  Int             @default(0) @map("total_appointments")
+  totalSpent         Decimal         @default(0) @db.Decimal(10, 2) @map("total_spent")
+  cancelRate         Decimal         @default(0) @db.Decimal(5, 2) @map("cancel_rate")
+  lastVisitAt        DateTime?       @map("last_visit_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  preferredProvider Provider?     @relation(fields: [preferredProviderId], references: [id])
+  appointments     Appointment[]
+  conversations    Conversation[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@index([tenantId, firstName, lastName])
+  @@map("customers")
+}
+
+enum CustomerSource {
+  WHATSAPP
+  SMS
+  TELEGRAM
+  MANUAL
+  IMPORT
+}
+
+enum Channel {
+  WHATSAPP
+  SMS
+  TELEGRAM
+  EMAIL
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  locationId     String            @map("location_id")
+  customerId     String            @map("customer_id")
+  providerId     String            @map("provider_id")
+  serviceId      String            @map("service_id")
+  startTime      DateTime          @map("start_time")
+  endTime        DateTime          @map("end_time")
+  duration       Int               // snapshot of actual duration
+  status         AppointmentStatus @default(PENDING)
+  price          Decimal           @db.Decimal(10, 2)
+  currency       String            @default("ILS")
+  depositAmount  Decimal           @default(0) @db.Decimal(10, 2) @map("deposit_amount")
+  depositPaid    Boolean           @default(false) @map("deposit_paid")
+  source         AppointmentSource @default(DASHBOARD)
+  notes          String?
+  internalNotes  String?           @map("internal_notes")
+  cancelledAt    DateTime?         @map("cancelled_at")
+  cancelReason   String?           @map("cancel_reason")
+  cancelledBy    String?           @map("cancelled_by")
+  recurrenceId      String?           @map("recurrence_id")
+  reminder24hSentAt DateTime?         @map("reminder_24h_sent_at")
+  reminder1hSentAt  DateTime?         @map("reminder_1h_sent_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  provider Provider @relation(fields: [providerId], references: [id])
+  service  Service  @relation(fields: [serviceId], references: [id])
+
+  // CRITICAL INDEXES for availability checking and calendar display
+  @@index([providerId, startTime, endTime])  // for availability queries
+  @@index([tenantId, startTime])             // for calendar date range
+  @@index([tenantId, providerId, startTime]) // for provider calendar
+  @@index([tenantId, customerId])            // for customer history
+  @@index([tenantId, status])                // for status filtering
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  WHATSAPP
+  SMS
+  TELEGRAM
+  DASHBOARD
+  WALK_IN
+}
+
+model Schedule {
+  id         String   @id @default(uuid())
+  providerId String   @map("provider_id")
+  locationId String?  @map("location_id")
+  dayOfWeek  Int      @map("day_of_week") // 0=Sunday, 6=Saturday
+  startTime  String   @map("start_time")  // "HH:mm"
+  endTime    String   @map("end_time")    // "HH:mm"
+  isWorking  Boolean  @default(true) @map("is_working")
+
+  provider Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id])
+
+  @@unique([providerId, locationId, dayOfWeek])
+  @@index([providerId])
+  @@map("schedules")
+}
+
+model ScheduleBreak {
+  id           String    @id @default(uuid())
+  providerId   String    @map("provider_id")
+  dayOfWeek    Int?      @map("day_of_week")
+  startTime    String    @map("start_time")
+  endTime      String    @map("end_time")
+  specificDate DateTime? @map("specific_date") // for one-off blocks
+  allDay       Boolean   @default(false) @map("all_day")
+  reason       String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId])
+  @@index([providerId, specificDate])
+  @@map("schedule_breaks")
+}
+
+model Conversation {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  customerId    String   @map("customer_id")
+  channel       Channel
+  state         Json     @default("{}") // current chatbot flow state
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  messages Message[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String        @map("conversation_id")
+  direction      Direction
+  content        String
+  messageType    MessageType   @default(TEXT) @map("message_type")
+  externalId     String?       @map("external_id") // WhatsApp/Twilio message ID
+  status         MessageStatus @default(SENT)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  INTERACTIVE
+  TEMPLATE
+  MEDIA
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model ChannelConfig {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  channel     Channel
+  isActive    Boolean  @default(false) @map("is_active")
+  credentials Json     @default("{}") // encrypted channel credentials
+  webhookUrl  String?  @map("webhook_url")
+  phoneNumber String?  @map("phone_number")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, channel])
+  @@map("channel_configs")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  changes   Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entity, entityId])
+  @@map("audit_logs")
+}
